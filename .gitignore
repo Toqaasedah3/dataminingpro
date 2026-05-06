@@ -1,0 +1,63 @@
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+virtualenv/
+
+# IDE and Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.project
+.pydevproject
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Data Files
+data/
+*.csv
+*.xlsx
+*.xls
+*.parquet
+*.json
+*.feather
+*.hdf5
+
+# Logs
+*.log
+logs/
+
+# OS Specific
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Misc
+*.tmp
+*.bak

@@ -1,0 +1,12 @@
+streamlit
+fastapi
+uvicorn
+python-multipart
+pandas
+numpy
+scikit-learn
+plotly
+huggingface_hub
+datasets
+python-dotenv
+requests
