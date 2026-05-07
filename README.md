@@ -1,183 +1,182 @@
 # HR Talent Mining & Recruitment Intelligence Platform
 
-A practical Python-based Data Mining application for HR analytics and talent recruitment intelligence. This platform allows HR professionals to upload employee datasets, automatically detect HR-related columns, clean and preprocess data, perform employee segmentation using K-Means clustering and PCA dimensionality reduction, and visualize results in an interactive dashboard.
+A comprehensive Python-based Data Mining platform for HR analytics, recruitment intelligence, workforce segmentation, and team-ready dataset sharing.
 
-## Features
+This system enables HR professionals, recruiters, analysts, and data science teams to:
 
-- **Dynamic CSV Upload**: Upload any HR dataset in CSV format
-- **Dataset Preview & Validation**: View and validate uploaded data
-- **Auto HR Column Detection**: Automatically identifies common HR columns (salary, satisfaction, department, etc.)
-- **Data Cleaning & Preprocessing**: Handles missing values, duplicates, and data type conversions
-- **Dataset Versioning**: Saves datasets in three versions:
-  - V0: Raw uploaded data
-  - V1: Cleaned and preprocessed data
-  - V2: Clustered data with segmentation results
-- **Employee Segmentation**: Uses K-Means clustering with optimal K selection via silhouette score
-- **Dimensionality Reduction**: PCA for 2D visualization of employee clusters
-- **Interactive Dashboard**: Streamlit-based frontend with Plotly charts
-- **API Backend**: FastAPI-powered REST API for data processing
-- **Hugging Face Integration**: Optional dataset versioning on Hugging Face Hub
+- Upload HR datasets dynamically
+- Automatically detect HR-related columns
+- Clean and preprocess raw employee data
+- Generate multiple prepared dataset versions
+- Run employee segmentation using K-Means clustering
+- Perform PCA dimensionality reduction
+- Visualize HR insights interactively
+- Share prepared datasets through Hugging Face Hub
+- Build a scalable recruitment intelligence workflow
 
-## Prerequisites
+---
 
-- Python 3.8 or higher
-- Git (for cloning the repository)
+# Table of Contents
 
-## Installation
+- Project Overview
+- Key Features
+- System Architecture
+- Technology Stack
+- Dataset Management
+- Hugging Face Integration
+- Installation Guide
+- Project Structure
+- Environment Configuration
+- Running the Application
+- Frontend Dashboard Pages
+- API Documentation
+- Machine Learning Workflow
+- Employee Segmentation Workflow
+- Dataset Versioning System
+- Team Collaboration Workflow
+- Sample Dataset
+- Troubleshooting
+- Future Enhancements
+- Contributing
+- License
+- Support
 
-### 1. Clone the Repository
+---
 
-```bash
-git clone https://github.com/your-username/hr-talent-mining-project.git
-cd hr-talent-mining-project
-```
+# Project Overview
 
-### 2. Create a Virtual Environment
+The HR Talent Mining Platform is designed to modernize HR data analysis by automating the full pipeline from raw dataset ingestion to advanced analytics.
 
-```bash
-python -m venv .venv
-```
+It supports:
 
-### 3. Activate the Virtual Environment
+### HR Analytics:
+- Employee satisfaction analysis
+- Attrition indicators
+- Salary analysis
+- Department insights
+- Promotion trends
+- Recruitment intelligence
 
-**On Windows:**
-```bash
-.venv\Scripts\activate
-```
+### Data Science Tasks:
+- Data preprocessing
+- Feature engineering
+- Dataset encoding
+- Dataset scaling
+- Clustering
+- PCA visualization
 
-**On macOS/Linux:**
-```bash
-source .venv/bin/activate
-```
+### Team Operations:
+- Shared prepared datasets
+- Hugging Face repository hosting
+- Version-controlled data pipelines
+- Collaborative ML-ready datasets
 
-### 4. Install Dependencies
+---
 
-```bash
-pip install -r requirements.txt
-```
+# Key Features
 
-## Setup
+## 1. Dynamic CSV Upload
+- Upload any HR dataset
+- Supports flexible column structures
+- Automatic validation
 
-### 1. Project Structure
+## 2. Dataset Preview
+- Displays uploaded data
+- Missing value detection
+- Duplicate detection
+- Column summary
 
-Ensure your project folder has the following structure:
+## 3. Auto HR Column Detection
+Automatically identifies:
 
-```
-hr-talent-mining-project/
-├── backend/
-│   ├── main.py
-│   └── modules/
-│       ├── column_detection.py
-│       ├── preprocessing.py
-│       ├── segmentation.py
-│       └── huggingface_utils.py
-├── frontend/
-│   └── app.py
-├── data/
-│   ├── raw/
-│   ├── cleaned/
-│   └── processed/
-├── requirements.txt
-├── README.md
-└── .env.example
-```
+- Salary
+- Satisfaction level
+- Last evaluation
+- Number of projects
+- Average monthly hours
+- Time spent at company
+- Work accident
+- Promotion
+- Department
+- Attrition/left status
 
-### 2. Environment Configuration (Optional)
+## 4. Data Cleaning & Preprocessing
+Includes:
 
-If you want to enable Hugging Face dataset versioning:
+- Missing value handling
+- Duplicate removal
+- Data type correction
+- Categorical normalization
+- Label encoding
+- Feature scaling
 
-1. Copy `.env.example` to `.env`:
-   ```bash
-   cp .env.example .env
-   ```
+## 5. Dataset Versioning
+### V0:
+Raw uploaded dataset
 
-2. Edit `.env` and add your Hugging Face credentials:
-   ```
-   HF_TOKEN=your_huggingface_token_here
-   HF_REPO_ID=your-username/hr-talent-mining-dataset
-   ```
+### V1:
+Cleaned dataset
 
-   - Get your token from [Hugging Face Settings](https://huggingface.co/settings/tokens)
-   - Create a dataset repository on Hugging Face Hub
+### V2:
+Encoded dataset
 
-## Running the Application
+### V3:
+Scaled dataset
 
-### 1. Start the Backend API
+### V4:
+Clustered dataset
 
-Open a terminal and run:
+## 6. Employee Segmentation
+Uses:
+- K-Means clustering
+- Silhouette Score optimization
+- Automatic best-K selection
 
-```bash
-uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
-```
+## 7. PCA Visualization
+- 2D dimensionality reduction
+- Cluster plotting
+- Recruitment segmentation insights
 
-The API will be available at: `http://127.0.0.1:8000`
+## 8. FastAPI Backend
+- REST API endpoints
+- Dataset processing
+- Segmentation pipeline
+- Hugging Face integration
 
-You can view the API documentation at: `http://127.0.0.1:8000/docs`
+## 9. Streamlit Frontend
+Interactive pages:
+- Upload
+- Preview
+- Cleaning
+- Segmentation
+- Dataset versions
+- Analytics dashboard
 
-### 2. Start the Frontend Dashboard
+## 10. Hugging Face Integration
+- Upload prepared datasets
+- Team sharing
+- External ML pipeline support
+- Dataset reproducibility
 
-Open another terminal and run:
+---
 
-```bash
-streamlit run frontend/app.py
-```
+# System Architecture
 
-The dashboard will be available at: `http://localhost:8501`
-
-## Usage
-
-1. **Upload Dataset**: Use the "Upload Dataset" page to upload a CSV file containing HR data.
-
-2. **Data Preview**: Review the uploaded data, check for missing values, and see detected columns.
-
-3. **Preprocessing**: Click "Send to Backend and Clean Dataset" to process the data.
-
-4. **Employee Segmentation**: Go to "Employee Segmentation" page and click "Run Segmentation" to perform K-Means clustering with PCA.
-
-5. **View Results**: Explore cluster summaries, PCA visualizations, and download processed datasets.
-
-6. **Dataset Versions**: Check the "Dataset Versions" page to see saved file paths and API status.
-
-## Sample Dataset
-
-A sample HR dataset is provided at `data/raw/sample_hr_dataset.csv` for testing the application.
-
-## API Endpoints
-
-- `GET /`: Health check
-- `POST /upload-dataset`: Upload and process CSV file
-- `POST /run-segmentation`: Perform employee segmentation
-- `GET /dataset-info`: Get current dataset information
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Import Errors**: Ensure all dependencies are installed and virtual environment is activated.
-
-2. **Port Conflicts**: If ports 8000 or 8501 are busy, change them in the run commands.
-
-3. **Hugging Face Upload Fails**: Check your `.env` file and Hugging Face token permissions.
-
-4. **Segmentation Errors**: Ensure your dataset has at least 2 numeric columns for clustering.
-
-### Logs
-
-- Backend logs appear in the terminal running uvicorn
-- Frontend logs appear in the terminal running streamlit
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## License
-
-This project is open source. Please check the license file for details.
-
-## Support
-
-For questions or issues, please open an issue on GitHub or contact the maintainers.
+```text
+User Upload CSV
+      ↓
+Frontend (Streamlit Dashboard)
+      ↓
+Backend API (FastAPI)
+      ↓
+Column Detection Module
+      ↓
+Preprocessing Module
+      ↓
+Dataset Versioning
+      ↓
+Segmentation Module (K-Means + PCA)
+      ↓
+Visualization Dashboard
+      ↓
+Hugging Face Dataset Repository
