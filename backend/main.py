@@ -3,6 +3,7 @@ import pandas as pd
 from datasets import load_dataset
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from backend.modules.risk_detection import run_risk_detection
 
 from backend.modules.preprocessing import clean_dataset, RAW_DIR, CLEANED_DIR
 # from backend.modules.segmentation import run_segmentation
@@ -168,7 +169,7 @@ def upload_prepared_data_to_huggingface():
 
 
 @app.get("/dataset-info")
-def dataset_info():
+def dataset_info():    
     if CURRENT_DATA["raw_df"] is None:
         return {
             "status": "empty",
@@ -190,3 +191,32 @@ def dataset_info():
         "scaled_path": CURRENT_DATA["scaled_path"],
         "clustered_path": CURRENT_DATA["clustered_path"],
     }
+
+
+@app.post("/run-risk-detection")
+def risk_detection_api():
+    try:
+        risk_df, summary = run_risk_detection()
+
+        CURRENT_DATA["risk_path"] = summary["output_path"]
+
+        return {
+            "status": "success",
+            "message": "Risk detection and burnout intelligence completed successfully.",
+            "summary": summary,
+            "columns_added": [
+                "attrition_score",
+                "burnout_score",
+                "risk_category",
+                "burnout_category",
+                "anomaly_status",
+                "danger_explanation"
+            ]
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error while running risk detection: {str(e)}"
+        )
+

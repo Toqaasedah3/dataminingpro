@@ -1,9 +1,11 @@
+import os
 import streamlit as st
 import pandas as pd
 import requests
 import plotly.express as px
 
 API_URL = "http://127.0.0.1:8000"
+RISK_DATA_PATH = "data/processed/V3_risk_scored_dataset.csv"
 
 st.set_page_config(
     page_title="HR Talent Mining Dashboard",
@@ -13,7 +15,12 @@ st.set_page_config(
 st.sidebar.title("HR Talent Mining")
 page = st.sidebar.radio(
     "Navigation",
-    ["Upload Dataset", "Employee Segmentation", "Dataset Versions"]
+    [
+        "Upload Dataset",
+        "Employee Segmentation",
+        "Risk Dashboard",
+        "Dataset Versions"
+    ]
 )
 
 st.title("HR Talent Mining & Recruitment Intelligence Platform")
@@ -24,6 +31,10 @@ if "upload_response" not in st.session_state:
 
 if "segmentation_response" not in st.session_state:
     st.session_state.segmentation_response = None
+
+if "risk_response" not in st.session_state:
+    st.session_state.risk_response = None
+
 
 if page == "Upload Dataset":
     st.header("Upload Company HR Dataset")
@@ -66,6 +77,7 @@ if page == "Upload Dataset":
             "cleaned_version_path": result["cleaned_version_path"],
         })
 
+
 elif page == "Employee Segmentation":
     st.header("Employee Segmentation: K-Means + PCA")
 
@@ -101,6 +113,139 @@ elif page == "Employee Segmentation":
                 title="PCA Employee Cluster Visualization"
             )
             st.plotly_chart(fig, use_container_width=True)
+
+
+elif page == "Risk Dashboard":
+    st.header("Employee Risk Intelligence Dashboard")
+    st.write("Risk Detection, Burnout Intelligence, Attrition Score, Alerts, and Employee Danger Categories")
+
+    if st.button("Run Risk Detection"):
+        response = requests.post(f"{API_URL}/run-risk-detection")
+
+        if response.status_code == 200:
+            st.session_state.risk_response = response.json()
+            st.success("Risk detection completed successfully.")
+            st.json(response.json()["summary"])
+        else:
+            st.error(response.text)
+
+    if not os.path.exists(RISK_DATA_PATH):
+        st.warning("V3 risk scored dataset not found yet. Click 'Run Risk Detection' first.")
+    else:
+        df = pd.read_csv(RISK_DATA_PATH)
+
+        total = len(df)
+        low = (df["risk_category"] == "Low Risk").sum()
+        medium = (df["risk_category"] == "Medium Risk").sum()
+        high = (df["risk_category"] == "High Risk").sum()
+        anomalies = (df["anomaly_status"] == "Anomalous Employee").sum()
+
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Total Employees", total)
+        c2.metric("Low Risk", low)
+        c3.metric("Medium Risk", medium)
+        c4.metric("High Risk", high)
+        c5.metric("Anomalies", anomalies)
+
+        st.divider()
+
+        left, right = st.columns(2)
+
+        with left:
+            st.subheader("Risk Classification")
+            risk_counts = df["risk_category"].value_counts().reset_index()
+            risk_counts.columns = ["Risk Category", "Count"]
+            fig = px.bar(risk_counts, x="Risk Category", y="Count", text="Count")
+            st.plotly_chart(fig, use_container_width=True)
+
+        with right:
+            st.subheader("Burnout Categories")
+            burnout_counts = df["burnout_category"].value_counts().reset_index()
+            burnout_counts.columns = ["Burnout Category", "Count"]
+            fig2 = px.pie(burnout_counts, names="Burnout Category", values="Count")
+            st.plotly_chart(fig2, use_container_width=True)
+
+        st.divider()
+
+        st.subheader("Risk Alerts")
+
+        alerts = df[
+            (df["risk_category"] == "High Risk") |
+            (df["burnout_category"] == "Severe Burnout") |
+            (df["anomaly_status"] == "Anomalous Employee")
+        ]
+
+        if alerts.empty:
+            st.success("No critical alerts found.")
+        else:
+            st.warning(f"{len(alerts)} employees need HR attention.")
+            st.dataframe(
+                alerts[
+                    [
+                        "EmployeeNumber",
+                        "Department",
+                        "JobRole",
+                        "OverTime",
+                        "JobSatisfaction",
+                        "WorkLifeBalance",
+                        "MonthlyIncome",
+                        "attrition_score",
+                        "burnout_score",
+                        "risk_category",
+                        "burnout_category",
+                        "anomaly_status",
+                        "danger_explanation"
+                    ]
+                ],
+                use_container_width=True
+            )
+
+        st.divider()
+
+        st.subheader("All Employees Risk Table")
+
+        risk_filter = st.selectbox(
+            "Filter by risk category",
+            ["All", "Low Risk", "Medium Risk", "High Risk"]
+        )
+
+        filtered = df.copy()
+
+        if risk_filter != "All":
+            filtered = filtered[filtered["risk_category"] == risk_filter]
+
+        st.dataframe(
+            filtered[
+                [
+                    "EmployeeNumber",
+                    "Department",
+                    "JobRole",
+                    "Attrition",
+                    "OverTime",
+                    "JobSatisfaction",
+                    "WorkLifeBalance",
+                    "MonthlyIncome",
+                    "attrition_score",
+                    "burnout_score",
+                    "risk_category",
+                    "burnout_category",
+                    "danger_explanation"
+                ]
+            ],
+            use_container_width=True
+        )
+
+        st.divider()
+
+        csv = df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            "Download V3 Risk Scored Dataset",
+            data=csv,
+            file_name="V3_risk_scored_dataset.csv",
+            mime="text/csv"
+        )
+
 
 elif page == "Dataset Versions":
     st.header("Dataset Versions")
