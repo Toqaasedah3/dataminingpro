@@ -3,10 +3,10 @@ import pandas as pd
 from datasets import load_dataset
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from backend.modules.risk_detection import run_risk_detection
 
-from backend.modules.preprocessing import clean_dataset, RAW_DIR, CLEANED_DIR
-# from backend.modules.segmentation import run_segmentation
+from backend.modules.risk_detection import run_risk_detection
+from backend.modules.preprocessing import clean_dataset
+from backend.modules.segmentation import run_segmentation
 from backend.modules.column_detection import missing_important_columns
 from backend.modules.huggingface_utils import upload_file_to_huggingface
 
@@ -33,6 +33,9 @@ CURRENT_DATA = {
     "encoded_path": None,
     "scaled_path": None,
     "clustered_path": None,
+    "segmentation_summary": None,
+    "segmentation_metrics": None,
+    "risk_path": None,
 }
 
 
@@ -58,6 +61,10 @@ def process_dataset(df: pd.DataFrame):
         "cleaned_path": clean_result["saved_files"]["cleaned"],
         "encoded_path": clean_result["saved_files"]["encoded"],
         "scaled_path": clean_result["saved_files"]["scaled"],
+        "clustered_path": None,
+        "segmentation_summary": None,
+        "segmentation_metrics": None,
+        "risk_path": None,
     })
 
     return clean_result
@@ -66,7 +73,10 @@ def process_dataset(df: pd.DataFrame):
 @app.post("/upload-dataset")
 async def upload_dataset(file: UploadFile = File(...)):
     if not file.filename.endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Only CSV files are supported.")
+        raise HTTPException(
+            status_code=400,
+            detail="Only CSV files are supported."
+        )
 
     try:
         df = pd.read_csv(file.file)
@@ -82,12 +92,17 @@ async def upload_dataset(file: UploadFile = File(...)):
             "missing_values_after_cleaning": clean_result["missing_values_after_cleaning"],
             "column_names": list(df.columns),
             "detected_columns": clean_result["detected_columns"],
-            "missing_important_columns": missing_important_columns(clean_result["detected_columns"]),
+            "missing_important_columns": missing_important_columns(
+                clean_result["detected_columns"]
+            ),
             "saved_files": clean_result["saved_files"],
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error while uploading/cleaning dataset: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error while uploading/cleaning dataset: {str(e)}"
+        )
 
 
 @app.post("/load-from-huggingface")
@@ -111,7 +126,9 @@ def load_from_huggingface():
             "missing_values_after_cleaning": clean_result["missing_values_after_cleaning"],
             "column_names": list(df.columns),
             "detected_columns": clean_result["detected_columns"],
-            "missing_important_columns": missing_important_columns(clean_result["detected_columns"]),
+            "missing_important_columns": missing_important_columns(
+                clean_result["detected_columns"]
+            ),
             "saved_files": clean_result["saved_files"],
         }
 
@@ -119,6 +136,54 @@ def load_from_huggingface():
         raise HTTPException(
             status_code=500,
             detail=f"Error while loading/cleaning dataset: {str(e)}"
+        )
+
+
+@app.post("/run-segmentation")
+def segmentation_api():
+    if CURRENT_DATA["cleaned_df"] is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No dataset available. Please upload or load a dataset first."
+        )
+
+    try:
+        result = run_segmentation(
+            scaled_df=CURRENT_DATA["scaled_df"],
+            original_df=CURRENT_DATA["cleaned_df"]
+        )
+
+        CURRENT_DATA["clustered_path"] = result["output_path"]
+        CURRENT_DATA["segmentation_summary"] = result["summary"]
+
+        CURRENT_DATA["segmentation_metrics"] = {
+            "best_k": result["best_k"],
+            "features_used": result["features_used"],
+            "silhouette_scores": result["silhouette_scores"],
+            "elbow_values": result["elbow_values"],
+            "evaluation_table": result["evaluation_table"],
+            "pca_explained_variance": result["pca_explained_variance"],
+        }
+
+        return {
+            "status": "success",
+            "message": "Employee segmentation completed successfully.",
+            "best_k": result["best_k"],
+            "features_used": result["features_used"],
+            "silhouette_scores": result["silhouette_scores"],
+            "elbow_values": result["elbow_values"],
+            "evaluation_table": result["evaluation_table"],
+            "pca_explained_variance": result["pca_explained_variance"],
+            "cluster_labels": result["cluster_labels"],
+            "cluster_profiles": result["cluster_profiles"],
+            "summary": result["summary"],
+            "output_path": result["output_path"],
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error while running segmentation: {str(e)}"
         )
 
 
@@ -169,7 +234,7 @@ def upload_prepared_data_to_huggingface():
 
 
 @app.get("/dataset-info")
-def dataset_info():    
+def dataset_info():
     if CURRENT_DATA["raw_df"] is None:
         return {
             "status": "empty",
@@ -190,6 +255,9 @@ def dataset_info():
         "encoded_path": CURRENT_DATA["encoded_path"],
         "scaled_path": CURRENT_DATA["scaled_path"],
         "clustered_path": CURRENT_DATA["clustered_path"],
+        "segmentation_summary": CURRENT_DATA["segmentation_summary"],
+        "segmentation_metrics": CURRENT_DATA["segmentation_metrics"],
+        "risk_path": CURRENT_DATA["risk_path"],
     }
 
 
@@ -219,4 +287,3 @@ def risk_detection_api():
             status_code=500,
             detail=f"Error while running risk detection: {str(e)}"
         )
-
