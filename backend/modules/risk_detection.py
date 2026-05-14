@@ -5,7 +5,6 @@ from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import MinMaxScaler
 
 PROCESSED_DIR = "data/processed"
-CLUSTERED_PATH = "data/processed/clustered_data.csv"
 
 
 def get_latest_cleaned_file():
@@ -51,18 +50,6 @@ def explain_risk(row):
     if row["PerformanceRating"] <= 3:
         reasons.append("performance needs attention")
 
-    if "cluster_label" in row.index:
-        cluster_label = str(row["cluster_label"])
-
-        if "Low Income" in cluster_label:
-            reasons.append("belongs to a low-income employee cluster")
-
-        if "Low Satisfaction" in cluster_label:
-            reasons.append("belongs to a low-satisfaction employee cluster")
-
-        if "Poor Work-Life Balance" in cluster_label:
-            reasons.append("belongs to a poor work-life balance cluster")
-
     if not reasons:
         return "No major risk indicators detected."
 
@@ -75,18 +62,10 @@ def run_risk_detection(input_path=None):
     if input_path is not None:
         df = pd.read_csv(input_path)
         used_input_file = input_path
-        used_clustered_data = "cluster" in df.columns or "cluster_label" in df.columns
-
-    elif os.path.exists(CLUSTERED_PATH):
-        df = pd.read_csv(CLUSTERED_PATH)
-        used_input_file = CLUSTERED_PATH
-        used_clustered_data = True
-
     else:
         cleaned_path = get_latest_cleaned_file()
         df = pd.read_csv(cleaned_path)
         used_input_file = cleaned_path
-        used_clustered_data = False
 
     result_df = df.copy()
 
@@ -159,7 +138,6 @@ def run_risk_detection(input_path=None):
     ]
 
     model = IsolationForest(contamination=0.10, random_state=42)
-
     result_df["anomaly_flag"] = model.fit_predict(features)
 
     result_df["anomaly_status"] = result_df["anomaly_flag"].apply(
@@ -167,10 +145,7 @@ def run_risk_detection(input_path=None):
     )
 
     result_df["risk_category"] = result_df["attrition_score"].apply(classify_risk)
-
-    result_df["burnout_category"] = result_df["burnout_score"].apply(
-        burnout_category
-    )
+    result_df["burnout_category"] = result_df["burnout_score"].apply(burnout_category)
 
     result_df["danger_explanation"] = result_df.apply(
         lambda row: explain_risk(row),
@@ -192,9 +167,7 @@ def run_risk_detection(input_path=None):
             (result_df["anomaly_status"] == "Anomalous Employee").sum()
         ),
         "used_input_file": used_input_file,
-        "used_clustered_data": used_clustered_data,
-        "has_cluster_column": "cluster" in result_df.columns,
-        "has_cluster_label_column": "cluster_label" in result_df.columns,
+        "used_cleaned_data": True,
         "output_path": output_path
     }
 

@@ -3,24 +3,39 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 
-st.set_page_config(page_title="Risk Dashboard", layout="wide")
+RISK_PATH = "data/processed/V5_risk_scored_dataset.csv"
 
-DATA_PATH = "data/processed/V3_risk_scored_dataset.csv"
+st.set_page_config(page_title="Risk Detection Results", layout="wide")
 
-st.title("Employee Risk Intelligence Dashboard")
-st.write("Risk Detection, Burnout Intelligence, Attrition Score, Alerts, and Employee Danger Categories")
+st.markdown("""
+<style>
+.stApp {
+    background-color: #ffffff;
+    color: #111827;
+}
+[data-testid="stMetricValue"] {
+    color: #111827;
+}
+.block-container {
+    padding-top: 2rem;
+}
+</style>
+""", unsafe_allow_html=True)
 
-if not os.path.exists(DATA_PATH):
-    st.error("V3 risk scored dataset not found. Please run /run-risk-detection from Swagger first.")
+st.title("Employee Risk Detection Results")
+st.write("Attrition risk, burnout intelligence, anomaly detection, and employee explanations.")
+
+if not os.path.exists(RISK_PATH):
+    st.error("V5 risk scored dataset not found. Run /run-risk-detection first.")
     st.stop()
 
-df = pd.read_csv(DATA_PATH)
+df = pd.read_csv(RISK_PATH)
 
 total = len(df)
-low = (df["risk_category"] == "Low Risk").sum()
-medium = (df["risk_category"] == "Medium Risk").sum()
-high = (df["risk_category"] == "High Risk").sum()
-anomalies = (df["anomaly_status"] == "Anomalous Employee").sum()
+low = int((df["risk_category"] == "Low Risk").sum())
+medium = int((df["risk_category"] == "Medium Risk").sum())
+high = int((df["risk_category"] == "High Risk").sum())
+anomalies = int((df["anomaly_status"] == "Anomalous Employee").sum())
 
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Total Employees", total)
@@ -31,21 +46,29 @@ c5.metric("Anomalies", anomalies)
 
 st.divider()
 
-left, right = st.columns(2)
+col1, col2 = st.columns(2)
 
-with left:
-    st.subheader("Risk Classification")
+with col1:
+    st.subheader("Risk Category Distribution")
     risk_counts = df["risk_category"].value_counts().reset_index()
     risk_counts.columns = ["Risk Category", "Count"]
     fig = px.bar(risk_counts, x="Risk Category", y="Count", text="Count")
     st.plotly_chart(fig, use_container_width=True)
 
-with right:
-    st.subheader("Burnout Categories")
+with col2:
+    st.subheader("Burnout Category Distribution")
     burnout_counts = df["burnout_category"].value_counts().reset_index()
     burnout_counts.columns = ["Burnout Category", "Count"]
-    fig2 = px.pie(burnout_counts, names="Burnout Category", values="Count")
-    st.plotly_chart(fig2, use_container_width=True)
+    fig = px.pie(burnout_counts, names="Burnout Category", values="Count")
+    st.plotly_chart(fig, use_container_width=True)
+
+st.divider()
+
+st.subheader("Anomaly Detection Results")
+anomaly_counts = df["anomaly_status"].value_counts().reset_index()
+anomaly_counts.columns = ["Anomaly Status", "Count"]
+fig = px.bar(anomaly_counts, x="Anomaly Status", y="Count", text="Count")
+st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
 
@@ -57,73 +80,67 @@ alerts = df[
     (df["anomaly_status"] == "Anomalous Employee")
 ]
 
+alert_columns = [
+    "EmployeeNumber",
+    "Department",
+    "JobRole",
+    "MonthlyIncome",
+    "OverTime",
+    "JobSatisfaction",
+    "WorkLifeBalance",
+    "attrition_score",
+    "burnout_score",
+    "risk_category",
+    "burnout_category",
+    "anomaly_status",
+    "danger_explanation"
+]
+
+alert_columns = [col for col in alert_columns if col in df.columns]
+
 if alerts.empty:
-    st.success("No critical alerts found.")
+    st.success("No critical risk alerts found.")
 else:
     st.warning(f"{len(alerts)} employees need HR attention.")
-    st.dataframe(
-        alerts[
-            [
-                "EmployeeNumber",
-                "Department",
-                "JobRole",
-                "OverTime",
-                "JobSatisfaction",
-                "WorkLifeBalance",
-                "MonthlyIncome",
-                "attrition_score",
-                "burnout_score",
-                "risk_category",
-                "burnout_category",
-                "anomaly_status",
-                "danger_explanation"
-            ]
-        ],
-        use_container_width=True
-    )
+    st.dataframe(alerts[alert_columns], use_container_width=True)
 
 st.divider()
 
-st.subheader("All Employees Risk Table")
+st.subheader("Employee Risk Explanation Table")
 
 risk_filter = st.selectbox(
     "Filter by risk category",
     ["All", "Low Risk", "Medium Risk", "High Risk"]
 )
 
-filtered = df.copy()
+filtered_df = df.copy()
 
 if risk_filter != "All":
-    filtered = filtered[filtered["risk_category"] == risk_filter]
+    filtered_df = filtered_df[filtered_df["risk_category"] == risk_filter]
 
-st.dataframe(
-    filtered[
-        [
-            "EmployeeNumber",
-            "Department",
-            "JobRole",
-            "Attrition",
-            "OverTime",
-            "JobSatisfaction",
-            "WorkLifeBalance",
-            "MonthlyIncome",
-            "attrition_score",
-            "burnout_score",
-            "risk_category",
-            "burnout_category",
-            "danger_explanation"
-        ]
-    ],
-    use_container_width=True
-)
+table_columns = [
+    "EmployeeNumber",
+    "Department",
+    "JobRole",
+    "attrition_score",
+    "burnout_score",
+    "risk_category",
+    "burnout_category",
+    "anomaly_status",
+    "danger_explanation"
+]
+
+table_columns = [col for col in table_columns if col in filtered_df.columns]
+
+st.dataframe(filtered_df[table_columns], use_container_width=True)
 
 st.divider()
 
 csv = df.to_csv(index=False).encode("utf-8")
 
 st.download_button(
-    "Download V3 Risk Scored Dataset",
+    label="Download V5 Risk Scored Dataset",
     data=csv,
-    file_name="V3_risk_scored_dataset.csv",
+    file_name="V5_risk_scored_dataset.csv",
     mime="text/csv"
 )
