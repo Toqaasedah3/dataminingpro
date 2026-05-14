@@ -4,6 +4,7 @@ from datasets import load_dataset
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from backend.modules.recommendation_engine import generate_recommendations
+from backend.modules.recommendation_engine_cleaned import generate_recommendations as generate_cleaned_recommendations
 from backend.modules.risk_detection import run_risk_detection
 from backend.modules.preprocessing import clean_dataset
 from backend.modules.segmentation import run_segmentation
@@ -291,11 +292,7 @@ def risk_detection_api():
 
 @app.post("/run-recommendations")
 def recommendations_api():
-    """
-    ALA'S RECOMMENDATION SYSTEM (V5):
-    Calculates weighted priority scores and generates HR intervention actions 
-    based on risk and burnout signals.
-    """
+   
     try:
         # Call the logic. Note: The function will automatically load V5 from BASE_PATH
         result_df = generate_recommendations()
@@ -315,4 +312,32 @@ def recommendations_api():
     except Exception as e:
         # General server error handling
         raise HTTPException(status_code=500, detail=f"Recommendation Engine Error: {str(e)}")
-    
+
+
+
+@app.post("/run-cleaned-recommendations")
+def cleaned_recommendations_api():
+
+    if CURRENT_DATA["cleaned_df"] is None:
+        raise HTTPException(
+            status_code=400,
+            detail="No cleaned dataset available. Please upload or load a dataset first."
+        )
+
+    try:
+        df = CURRENT_DATA["cleaned_df"]
+
+        result_df = generate_cleaned_recommendations(df)
+
+        return {
+            "status": "success",
+            "version": "cleaned_v2",
+            "total_records": len(result_df),
+            "recommendations": result_df.to_dict(orient="records")
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Cleaned Recommendation Engine Error: {str(e)}"
+        )
