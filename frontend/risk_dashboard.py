@@ -7,8 +7,23 @@ RISK_PATH = "data/processed/V5_risk_scored_dataset.csv"
 
 st.set_page_config(page_title="Risk Detection Results", layout="wide")
 
-st.title("Risk Detection Results")
-st.write("Attrition risk, burnout intelligence, anomaly detection, and risk explanations.")
+st.markdown("""
+<style>
+.stApp {
+    background-color: #ffffff;
+    color: #111827;
+}
+[data-testid="stMetricValue"] {
+    color: #111827;
+}
+.block-container {
+    padding-top: 2rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.title("Employee Risk Detection Results")
+st.write("Attrition risk, burnout intelligence, anomaly detection, and employee explanations.")
 
 if not os.path.exists(RISK_PATH):
     st.error("V5 risk scored dataset not found. Run /run-risk-detection first.")
@@ -37,63 +52,23 @@ with col1:
     st.subheader("Risk Category Distribution")
     risk_counts = df["risk_category"].value_counts().reset_index()
     risk_counts.columns = ["Risk Category", "Count"]
-    fig = px.bar(
-        risk_counts,
-        x="Risk Category",
-        y="Count",
-        text="Count",
-        title="Employees by Risk Level"
-    )
+    fig = px.bar(risk_counts, x="Risk Category", y="Count", text="Count")
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
     st.subheader("Burnout Category Distribution")
     burnout_counts = df["burnout_category"].value_counts().reset_index()
     burnout_counts.columns = ["Burnout Category", "Count"]
-    fig = px.pie(
-        burnout_counts,
-        names="Burnout Category",
-        values="Count",
-        title="Burnout Categories"
-    )
+    fig = px.pie(burnout_counts, names="Burnout Category", values="Count")
     st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
 
-col3, col4 = st.columns(2)
-
-with col3:
-    st.subheader("Anomaly Detection")
-    anomaly_counts = df["anomaly_status"].value_counts().reset_index()
-    anomaly_counts.columns = ["Anomaly Status", "Count"]
-    fig = px.bar(
-        anomaly_counts,
-        x="Anomaly Status",
-        y="Count",
-        text="Count",
-        title="Normal vs Anomalous Employees"
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-with col4:
-    st.subheader("Risk by Cluster")
-    if "cluster_label" in df.columns:
-        cluster_risk = (
-            df.groupby(["cluster_label", "risk_category"])
-            .size()
-            .reset_index(name="Count")
-        )
-        fig = px.bar(
-            cluster_risk,
-            x="cluster_label",
-            y="Count",
-            color="risk_category",
-            barmode="group",
-            title="Risk Distribution by Employee Segment"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Cluster labels are not available.")
+st.subheader("Anomaly Detection Results")
+anomaly_counts = df["anomaly_status"].value_counts().reset_index()
+anomaly_counts.columns = ["Anomaly Status", "Count"]
+fig = px.bar(anomaly_counts, x="Anomaly Status", y="Count", text="Count")
+st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
 
@@ -113,7 +88,6 @@ alert_columns = [
     "OverTime",
     "JobSatisfaction",
     "WorkLifeBalance",
-    "cluster_label",
     "attrition_score",
     "burnout_score",
     "risk_category",
@@ -134,36 +108,20 @@ st.divider()
 
 st.subheader("Employee Risk Explanation Table")
 
-filter_col1, filter_col2 = st.columns(2)
-
-with filter_col1:
-    risk_filter = st.selectbox(
-        "Filter by risk category",
-        ["All", "Low Risk", "Medium Risk", "High Risk"]
-    )
-
-with filter_col2:
-    if "cluster_label" in df.columns:
-        cluster_filter = st.selectbox(
-            "Filter by cluster",
-            ["All"] + sorted(df["cluster_label"].dropna().unique().tolist())
-        )
-    else:
-        cluster_filter = "All"
+risk_filter = st.selectbox(
+    "Filter by risk category",
+    ["All", "Low Risk", "Medium Risk", "High Risk"]
+)
 
 filtered_df = df.copy()
 
 if risk_filter != "All":
     filtered_df = filtered_df[filtered_df["risk_category"] == risk_filter]
 
-if cluster_filter != "All" and "cluster_label" in filtered_df.columns:
-    filtered_df = filtered_df[filtered_df["cluster_label"] == cluster_filter]
-
 table_columns = [
     "EmployeeNumber",
     "Department",
     "JobRole",
-    "cluster_label",
     "attrition_score",
     "burnout_score",
     "risk_category",
