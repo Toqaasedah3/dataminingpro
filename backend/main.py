@@ -3,7 +3,7 @@ import pandas as pd
 from datasets import load_dataset
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-
+from backend.modules.recommendation_engine import generate_recommendations
 from backend.modules.risk_detection import run_risk_detection
 from backend.modules.preprocessing import clean_dataset
 from backend.modules.segmentation import run_segmentation
@@ -287,3 +287,32 @@ def risk_detection_api():
             status_code=500,
             detail=f"Error while running risk detection: {str(e)}"
         )
+
+
+@app.post("/run-recommendations")
+def recommendations_api():
+    """
+    ALA'S RECOMMENDATION SYSTEM (V5):
+    Calculates weighted priority scores and generates HR intervention actions 
+    based on risk and burnout signals.
+    """
+    try:
+        # Call the logic. Note: The function will automatically load V5 from BASE_PATH
+        result_df = generate_recommendations()
+
+        # Convert the DataFrame to a list of dictionaries so Swagger can display it
+        output_data = result_df.to_dict(orient="records")
+
+        return {
+            "status": "success",
+            "version": "5.0",
+            "total_records": len(result_df),
+            "recommendations": output_data
+        }
+    except FileNotFoundError as e:
+        # Specific error if V5_risk_scored_dataset.csv is missing
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        # General server error handling
+        raise HTTPException(status_code=500, detail=f"Recommendation Engine Error: {str(e)}")
+    

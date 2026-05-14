@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import plotly.express as px
+from recommendation_dashboard import show_recommendation_dashboard
 
 API_URL = "http://127.0.0.1:8000"
 RISK_DATA_PATH = "data/processed/V3_risk_scored_dataset.csv"
@@ -19,6 +20,7 @@ page = st.sidebar.radio(
         "Upload Dataset",
         "Employee Segmentation",
         "Risk Dashboard",
+        "Recommendation Engine",
         "Dataset Versions"
     ]
 )
@@ -34,6 +36,13 @@ if "segmentation_response" not in st.session_state:
 
 if "risk_response" not in st.session_state:
     st.session_state.risk_response = None
+
+# Add session state for recommendation data
+if "recommendation_df" not in st.session_state:
+    st.session_state.recommendation_df = None
+
+if "recommendation_result" not in st.session_state:
+    st.session_state.recommendation_result = None
 
 
 if page == "Upload Dataset":
@@ -180,23 +189,12 @@ elif page == "Risk Dashboard":
         else:
             st.warning(f"{len(alerts)} employees need HR attention.")
             st.dataframe(
-                alerts[
-                    [
-                        "EmployeeNumber",
-                        "Department",
-                        "JobRole",
-                        "OverTime",
-                        "JobSatisfaction",
-                        "WorkLifeBalance",
-                        "MonthlyIncome",
-                        "attrition_score",
-                        "burnout_score",
-                        "risk_category",
-                        "burnout_category",
-                        "anomaly_status",
-                        "danger_explanation"
-                    ]
-                ],
+                alerts[[
+                    "EmployeeNumber", "Department", "JobRole", "OverTime",
+                    "JobSatisfaction", "WorkLifeBalance", "MonthlyIncome",
+                    "attrition_score", "burnout_score", "risk_category",
+                    "burnout_category", "anomaly_status", "danger_explanation"
+                ]],
                 use_container_width=True
             )
 
@@ -210,35 +208,22 @@ elif page == "Risk Dashboard":
         )
 
         filtered = df.copy()
-
         if risk_filter != "All":
             filtered = filtered[filtered["risk_category"] == risk_filter]
 
         st.dataframe(
-            filtered[
-                [
-                    "EmployeeNumber",
-                    "Department",
-                    "JobRole",
-                    "Attrition",
-                    "OverTime",
-                    "JobSatisfaction",
-                    "WorkLifeBalance",
-                    "MonthlyIncome",
-                    "attrition_score",
-                    "burnout_score",
-                    "risk_category",
-                    "burnout_category",
-                    "danger_explanation"
-                ]
-            ],
+            filtered[[
+                "EmployeeNumber", "Department", "JobRole", "Attrition", "OverTime",
+                "JobSatisfaction", "WorkLifeBalance", "MonthlyIncome",
+                "attrition_score", "burnout_score", "risk_category",
+                "burnout_category", "danger_explanation"
+            ]],
             use_container_width=True
         )
 
         st.divider()
 
         csv = df.to_csv(index=False).encode("utf-8")
-
         st.download_button(
             "Download V3 Risk Scored Dataset",
             data=csv,
@@ -256,3 +241,28 @@ elif page == "Dataset Versions":
         st.json(info)
     else:
         st.error(response.text)
+
+
+elif page == "Recommendation Engine":
+    st.header("AI Recommendation Engine")
+
+    if st.button("Run Recommendations"):
+        response = requests.post(f"{API_URL}/run-recommendations")
+
+        if response.status_code == 200:
+            result = response.json()
+            # Save to session_state so reruns don't lose the data
+            st.session_state.recommendation_df = pd.DataFrame(result["recommendations"])
+            st.session_state.recommendation_result = result
+            st.success("Recommendations generated successfully")
+        else:
+            st.error(response.text)
+
+    # Always render dashboard from session_state, not from button click
+    if st.session_state.recommendation_df is not None:
+        show_recommendation_dashboard(
+            st.session_state.recommendation_df,
+            st.session_state.recommendation_result
+        )
+    else:
+        st.info("Click 'Run Recommendations' to generate results.")
