@@ -612,4 +612,4 @@ if __name__ == "__main__":
 
     except FileNotFoundError as e:
         print(f"\n  {e}")
-        print("   Run after Toqa & Tala's pipeline generates V5.")
+        print("   Run after Toqa & Tala's pipeline generates V6.")
