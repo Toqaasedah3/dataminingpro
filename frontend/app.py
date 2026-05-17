@@ -1,44 +1,73 @@
 import os
-import streamlit as st
+import sys
 import pandas as pd
 import requests
-import plotly.express as px
+import streamlit as st
 
-from recommendation_dashboard import show_recommendation_dashboard
-from cleaned_recommendation_dashboard import (
-    show_cleaned_recommendation_dashboard
-)
+# Make frontend folder imports stable
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, ".."))
+
+if CURRENT_DIR not in sys.path:
+    sys.path.append(CURRENT_DIR)
+
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
+
+from segmentation_dashboard import render_segmentation_dashboard
+from risk_dashboard import render_risk_dashboard
+from recommendation_dashboard import render_recommendation_dashboard
+from full_hr_intelligence_dashboard import render_full_hr_intelligence_dashboard
+
 
 API_URL = "http://127.0.0.1:8000"
-RISK_DATA_PATH = "data/processed/V3_risk_scored_dataset.csv"
 
 st.set_page_config(
     page_title="HR Talent Mining Dashboard",
     layout="wide"
 )
 
-# SIDEBAR
+st.markdown(
+    """
+    <style>
+    .stApp {
+        background-color: #ffffff;
+        color: #111827;
+    }
 
-st.sidebar.title("HR Talent Mining")
+    [data-testid="stSidebar"] {
+        background-color: #f8fafc;
+    }
 
-page = st.sidebar.radio(
-    "Navigation",
-    [
-        "Upload Dataset",
-        "Employee Segmentation",
-        "Risk Dashboard",
-        "Recommendation Engine",
-        "Recommendation Engine (Cleaned)",
-        "Dataset Versions"
-    ]
+    [data-testid="stMetricValue"] {
+        color: #111827;
+    }
+
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+    }
+
+    h1, h2, h3 {
+        color: #111827;
+    }
+
+    .section-card {
+        padding: 1.2rem;
+        border-radius: 1rem;
+        background-color: #f9fafb;
+        border: 1px solid #e5e7eb;
+        margin-bottom: 1rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
 )
 
-# TITLE
 
-st.title("HR Talent Mining & Recruitment Intelligence Platform")
-st.caption("A practical Python Data Mining system for HR analytics.")
-
+# =========================
 # SESSION STATE
+# =========================
 
 if "upload_response" not in st.session_state:
     st.session_state.upload_response = None
@@ -49,32 +78,132 @@ if "segmentation_response" not in st.session_state:
 if "risk_response" not in st.session_state:
     st.session_state.risk_response = None
 
-if "recommendation_df" not in st.session_state:
-    st.session_state.recommendation_df = None
-
-if "recommendation_result" not in st.session_state:
-    st.session_state.recommendation_result = None
-
-if "cleaned_recommendation_df" not in st.session_state:
-    st.session_state.cleaned_recommendation_df = None
-
-if "cleaned_recommendation_result" not in st.session_state:
-    st.session_state.cleaned_recommendation_result = None
+if "recommendation_response" not in st.session_state:
+    st.session_state.recommendation_response = None
 
 
-# UPLOAD DATASET
+# =========================
+# SIDEBAR
+# =========================
 
-if page == "Upload Dataset":
+st.sidebar.title("HR Talent Mining")
 
-    st.header("Upload Company HR Dataset")
+page = st.sidebar.radio(
+    "Navigation",
+    [
+        "Home",
+        "Upload / Load Dataset",
+        "Segmentation Dashboard",
+        "Risk Dashboard",
+        "Recommendations Dashboard",
+        "Full HR Intelligence Dashboard",
+        "Dataset Versions"
+    ]
+)
+
+st.sidebar.divider()
+
+st.sidebar.caption(
+    "Pipeline: Data Loading → Segmentation → Risk Detection → Recommendations → Final HR Intelligence"
+)
+
+
+# =========================
+# HOME
+# =========================
+
+if page == "Home":
+    st.title("HR Talent Mining & Recruitment Intelligence Platform")
+    st.caption("A practical Data Mining system for HR analytics, workforce segmentation, risk intelligence, and HR recommendations.")
+
+    st.markdown("### Project Pipeline")
+
+    st.info(
+        """
+        This platform transforms HR datasets into useful intelligence through an integrated pipeline:
+
+        1. Data loading and preprocessing  
+        2. Employee segmentation using K-Means and PCA  
+        3. Risk detection and burnout intelligence  
+        4. HR recommendations and retention strategies  
+        5. Final integrated dashboard for decision support
+        """
+    )
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("### Toqa")
+        st.write("Data engineering, preprocessing, K-Means clustering, PCA, and segmentation dashboard.")
+
+    with col2:
+        st.markdown("### Tala")
+        st.write("Risk detection, burnout intelligence, anomaly detection, explanations, and risk dashboard.")
+
+    with col3:
+        st.markdown("### Alaa")
+        st.write("Recommendation engine, retention strategies, final dashboard integration, and final product.")
+
+    st.divider()
+
+    st.markdown("### Recommended Running Order")
+
+    st.code(
+        """
+1. POST /load-from-huggingface
+2. POST /run-segmentation
+3. POST /run-risk-detection
+4. POST /run-recommendations
+5. Open Streamlit dashboards
+        """,
+        language="text"
+    )
+
+
+# =========================
+# UPLOAD / LOAD DATASET
+# =========================
+
+elif page == "Upload / Load Dataset":
+    st.title("Upload / Load HR Dataset")
+    st.write("Load the HR dataset either from Hugging Face or by uploading a CSV file.")
+
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+        st.subheader("Load from Hugging Face")
+
+        if st.button("Load Dataset from Hugging Face", use_container_width=True):
+            response = requests.post(f"{API_URL}/load-from-huggingface")
+
+            if response.status_code == 200:
+                st.session_state.upload_response = response.json()
+                st.success("Dataset loaded and processed successfully.")
+                st.json(response.json())
+            else:
+                st.error(response.text)
+
+    with col_b:
+        st.subheader("Dataset Status")
+
+        if st.button("Check Dataset Info", use_container_width=True):
+            response = requests.get(f"{API_URL}/dataset-info")
+
+            if response.status_code == 200:
+                st.json(response.json())
+            else:
+                st.error(response.text)
+
+    st.divider()
+
+    st.subheader("Upload CSV Manually")
 
     uploaded_file = st.file_uploader(
-        "Upload CSV file",
+        "Upload HR CSV file",
         type=["csv"]
     )
 
     if uploaded_file is not None:
-
         df = pd.read_csv(uploaded_file)
 
         st.success("Dataset loaded in frontend preview.")
@@ -92,7 +221,6 @@ if page == "Upload Dataset":
         st.write(list(df.columns))
 
         if st.button("Send to Backend and Clean Dataset"):
-
             uploaded_file.seek(0)
 
             files = {
@@ -109,133 +237,129 @@ if page == "Upload Dataset":
             )
 
             if response.status_code == 200:
-
                 st.session_state.upload_response = response.json()
-
-                st.success(
-                    "Dataset uploaded and cleaned successfully."
-                )
-
+                st.success("Dataset uploaded and cleaned successfully.")
+                st.json(response.json())
             else:
                 st.error(response.text)
 
-    if st.session_state.upload_response:
 
-        result = st.session_state.upload_response
+# =========================
+# SEGMENTATION DASHBOARD
+# =========================
 
-        st.subheader("Backend Processing Results")
+elif page == "Segmentation Dashboard":
+    st.title("Employee Segmentation")
 
-        st.json(result)
+    col1, col2 = st.columns([1, 2])
 
+    with col1:
+        if st.button("Run Segmentation", use_container_width=True):
+            response = requests.post(f"{API_URL}/run-segmentation")
 
-# RECOMMENDATION ENGINE
+            if response.status_code == 200:
+                st.session_state.segmentation_response = response.json()
+                st.success("Segmentation completed successfully.")
+            else:
+                st.error(response.text)
 
-elif page == "Recommendation Engine":
+    with col2:
+        st.info("This page shows employee clusters, PCA visualization, cluster profiles, and model evaluation.")
 
-    st.header("AI Recommendation Engine")
+    st.divider()
 
-    if st.button("Run Recommendations"):
-
-        response = requests.post(
-            f"{API_URL}/run-recommendations"
-        )
-
-        if response.status_code == 200:
-
-            result = response.json()
-
-            st.session_state.recommendation_df = pd.DataFrame(
-                result["recommendations"]
-            )
-
-            st.session_state.recommendation_result = result
-
-            st.success(
-                "Recommendations generated successfully"
-            )
-
-        else:
-            st.error(response.text)
-
-    if st.session_state.recommendation_df is not None:
-
-        show_recommendation_dashboard(
-            st.session_state.recommendation_df,
-            st.session_state.recommendation_result
-        )
-
-    else:
-        st.info(
-            "Click 'Run Recommendations' to generate results."
-        )
+    render_segmentation_dashboard(st.session_state.segmentation_response)
 
 
-# CLEANED RECOMMENDATION ENGINE
+# =========================
+# RISK DASHBOARD
+# =========================
+
+elif page == "Risk Dashboard":
+    st.title("Risk Detection & Burnout Intelligence")
+
+    col1, col2 = st.columns([1, 2])
+
+    with col1:
+        if st.button("Run Risk Detection", use_container_width=True):
+            response = requests.post(f"{API_URL}/run-risk-detection")
+
+            if response.status_code == 200:
+                st.session_state.risk_response = response.json()
+                st.success("Risk detection completed successfully.")
+                st.json(response.json())
+            else:
+                st.error(response.text)
+
+    with col2:
+        st.info("This page shows attrition risk, burnout scores, anomaly detection, alerts, and employee explanations.")
+
+    st.divider()
+
+    render_risk_dashboard()
 
 
-elif page == "Recommendation Engine (Cleaned)":
+# =========================
+# RECOMMENDATIONS DASHBOARD
+# =========================
 
-    st.header("Cleaned AI Recommendation Engine")
+elif page == "Recommendations Dashboard":
+    st.title("Strategic HR Recommendations")
 
-    st.write(
-        "Run recommendation analysis using the cleaned HR dataset."
-    )
+    col1, col2 = st.columns([1, 2])
 
-    st.warning(
-        "You must upload a dataset first from the Upload Dataset page."
-    )
+    with col1:
+        if st.button("Run Recommendations", use_container_width=True):
+            response = requests.post(f"{API_URL}/run-recommendations")
 
-    if st.button("Run Cleaned Recommendations"):
+            if response.status_code == 200:
+                st.session_state.recommendation_response = response.json()
+                st.success("Recommendations generated successfully.")
+            else:
+                st.error(response.text)
 
-        response = requests.post(
-            f"{API_URL}/run-cleaned-recommendations"
-        )
+    with col2:
+        st.info("This page shows HR actions, retention strategies, priority levels, and recommendation insights.")
 
-        if response.status_code == 200:
+    st.divider()
 
-            result = response.json()
-
-            st.session_state.cleaned_recommendation_df = pd.DataFrame(
-                result["recommendations"]
-            )
-
-            st.session_state.cleaned_recommendation_result = result
-
-            st.success(
-                "Cleaned recommendations generated successfully."
-            )
-
-        else:
-            st.error(response.text)
-
-    if st.session_state.cleaned_recommendation_df is not None:
-
-        show_cleaned_recommendation_dashboard(
-            st.session_state.cleaned_recommendation_df,
-            st.session_state.cleaned_recommendation_result
-        )
-
-    else:
-        st.info(
-            "Upload dataset first, then run cleaned recommendations."
-        )
+    render_recommendation_dashboard(st.session_state.recommendation_response)
 
 
+# =========================
+# FULL HR INTELLIGENCE DASHBOARD
+# =========================
+
+elif page == "Full HR Intelligence Dashboard":
+    render_full_hr_intelligence_dashboard()
+
+
+# =========================
 # DATASET VERSIONS
+# =========================
 
 elif page == "Dataset Versions":
+    st.title("Dataset Versions & API Status")
 
-    st.header("Dataset Versions")
-
-    response = requests.get(
-        f"{API_URL}/dataset-info"
-    )
+    response = requests.get(f"{API_URL}/dataset-info")
 
     if response.status_code == 200:
-
-        info = response.json()
-
-        st.json(info)
-
+        st.json(response.json())
     else:
         st.error(response.text)
+
+    st.divider()
+
+    st.subheader("Expected Local Outputs")
+
+    expected_files = {
+        "Clustered Dataset": "backend/data/clustered/clustered_data.csv",
+        "Risk Scored Dataset": "data/processed/V5_risk_scored_dataset.csv",
+        "Final Recommendation Dataset": "data/processed/V6_final_recommendation_dataset.csv"
+    }
+
+    for label, path in expected_files.items():
+        if os.path.exists(path):
+            st.success(f"{label}: {path}")
+        else:
+            st.warning(f"{label} not found: {path}")
