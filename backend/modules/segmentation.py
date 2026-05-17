@@ -7,8 +7,8 @@ from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_har
 from sklearn.decomposition import PCA
 
 
-CLUSTERED_DIR = "backend/data/clustered"
-os.makedirs(CLUSTERED_DIR, exist_ok=True)
+PROCESSED_DIR = os.path.join("backend", "data", "processed")
+os.makedirs(PROCESSED_DIR, exist_ok=True)
 
 
 DROP_COLUMNS = [
@@ -31,7 +31,9 @@ PREFERRED_FEATURES = [
     "YearsInCurrentRole",
     "YearsSinceLastPromotion",
     "YearsWithCurrManager",
-    "JobLevel"
+    "JobLevel",
+    "DistanceFromHome",
+    "PerformanceRating"
 ]
 
 
@@ -43,7 +45,10 @@ def select_best_features(df: pd.DataFrame):
         errors="ignore"
     )
 
-    available_features = [col for col in PREFERRED_FEATURES if col in df.columns]
+    available_features = [
+        col for col in PREFERRED_FEATURES
+        if col in df.columns
+    ]
 
     if available_features:
         feature_df = df[available_features].copy()
@@ -94,10 +99,10 @@ def apply_pca_svd(scaled_data, n_components=2):
     return pca_result, explained_variance
 
 
-def find_best_k(pca_data, min_k=2, max_k=10):
+def find_best_k(data, min_k=2, max_k=10):
     results = []
 
-    max_k = min(max_k, len(pca_data) - 1)
+    max_k = min(max_k, len(data) - 1)
 
     if max_k < min_k:
         raise ValueError("Dataset is too small for clustering.")
@@ -110,14 +115,14 @@ def find_best_k(pca_data, min_k=2, max_k=10):
             max_iter=500
         )
 
-        labels = model.fit_predict(pca_data)
+        labels = model.fit_predict(data)
 
         results.append({
             "k": int(k),
             "inertia": float(model.inertia_),
-            "silhouette": float(silhouette_score(pca_data, labels)),
-            "davies_bouldin": float(davies_bouldin_score(pca_data, labels)),
-            "calinski_harabasz": float(calinski_harabasz_score(pca_data, labels))
+            "silhouette": float(silhouette_score(data, labels)),
+            "davies_bouldin": float(davies_bouldin_score(data, labels)),
+            "calinski_harabasz": float(calinski_harabasz_score(data, labels))
         })
 
     best_result = max(results, key=lambda x: x["silhouette"])
@@ -159,6 +164,8 @@ def build_cluster_label(cluster_profile, overall_profile):
 
     if below("WorkLifeBalance"):
         labels.append("Poor Work-Life Balance")
+    elif above("WorkLifeBalance"):
+        labels.append("Good Work-Life Balance")
 
     if above("YearsAtCompany"):
         labels.append("Long Tenure")
@@ -233,27 +240,23 @@ def build_cluster_profiles(result_df: pd.DataFrame):
     return profiles
 
 
-def run_segmentation(scaled_df: pd.DataFrame = None, original_df: pd.DataFrame = None):
+def run_segmentation(original_df: pd.DataFrame = None):
     if original_df is None or original_df.empty:
-        raise ValueError("Original dataset is required.")
+        raise ValueError("Original uploaded company dataset is required.")
 
-    # 1. Feature Selection + StandardScaler
     scaled_data, features_used = select_best_features(original_df)
 
-    # 2. PCA using SVD
     pca_result, pca_explained_variance = apply_pca_svd(
         scaled_data,
         n_components=2
     )
 
-    # 3. Find best K using PCA output
     best_k, silhouette_scores, elbow_values, evaluation_table = find_best_k(
-        pca_result,
+        scaled_data,
         min_k=2,
         max_k=10
     )
 
-    # 4. Final KMeans using PCA output
     final_model = KMeans(
         n_clusters=best_k,
         random_state=42,
@@ -261,7 +264,7 @@ def run_segmentation(scaled_df: pd.DataFrame = None, original_df: pd.DataFrame =
         max_iter=700
     )
 
-    clusters = final_model.fit_predict(pca_result)
+    clusters = final_model.fit_predict(scaled_data)
 
     result_df = original_df.copy()
     result_df["cluster"] = clusters
@@ -280,7 +283,7 @@ def run_segmentation(scaled_df: pd.DataFrame = None, original_df: pd.DataFrame =
 
     cluster_profiles = build_cluster_profiles(result_df)
 
-    output_path = os.path.join(CLUSTERED_DIR, "clustered_data.csv")
+    output_path = os.path.join(PROCESSED_DIR, "clustered_data.csv")
     result_df.to_csv(output_path, index=False)
 
     return {
@@ -293,5 +296,6 @@ def run_segmentation(scaled_df: pd.DataFrame = None, original_df: pd.DataFrame =
         "cluster_labels": cluster_labels,
         "cluster_profiles": cluster_profiles,
         "summary": summary_df.to_dict(orient="records"),
+        "clustered_df": result_df,
         "output_path": output_path,
     }

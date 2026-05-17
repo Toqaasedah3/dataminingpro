@@ -1,15 +1,25 @@
 import os
 import pandas as pd
 import numpy as np
+
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics.pairwise import cosine_similarity
 
 
-# CONFIG
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-BASE_PATH = os.path.join(BASE_DIR, "data", "processed", "V5_risk_scored_dataset.csv")
+PROCESSED_DIR = os.path.join("backend", "data", "processed")
+os.makedirs(PROCESSED_DIR, exist_ok=True)
 
-# Features used to build each employee's content profile vector
+BASE_PATH = os.path.join(
+    PROCESSED_DIR,
+    "V5_risk_scored_dataset.csv"
+)
+
+OUTPUT_PATH = os.path.join(
+    PROCESSED_DIR,
+    "V6_recommendations.csv"
+)
+
+
 PROFILE_FEATURES = [
     "Age",
     "MonthlyIncome",
@@ -29,7 +39,7 @@ PROFILE_FEATURES = [
     "burnout_score",
 ]
 
-# Output columns to return
+
 OUTPUT_COLS = [
     "EmployeeNumber",
     "Age",
@@ -54,76 +64,94 @@ OUTPUT_COLS = [
 ]
 
 
-# STEP 1 — LOAD & VALIDATE
 def load_data(df: pd.DataFrame = None) -> pd.DataFrame:
-    """Load dataset from memory (API/Streamlit) or from file."""
     if df is None:
         if not os.path.exists(BASE_PATH):
-            raise FileNotFoundError(f"Dataset not found at: {BASE_PATH}")
+            raise FileNotFoundError(
+                f"Risk scored dataset not found at: {BASE_PATH}. "
+                "Please upload a company dataset and run the full pipeline first."
+            )
         df = pd.read_csv(BASE_PATH)
 
     required = {
-        "risk_category", "burnout_category",
-        "anomaly_status", "attrition_score", "burnout_score"
+        "risk_category",
+        "burnout_category",
+        "anomaly_status",
+        "attrition_score",
+        "burnout_score",
     }
-    missing = required - set(df.columns)
-    if missing:
-        raise ValueError(f"Dataset missing required columns: {missing}")
 
-    # Encode OverTime if string
-    if "OverTime" in df.columns and df["OverTime"].dtype == object:
-        df["OverTime"] = df["OverTime"].map({"Yes": 1, "No": 0}).fillna(0)
+    missing = required - set(df.columns)
+
+    if missing:
+        raise ValueError(
+            f"Dataset missing required recommendation columns: {missing}. "
+            "Please run risk detection before recommendations."
+        )
+
+    df = df.copy()
+
+    if "OverTime" in df.columns:
+        df["OverTime"] = df["OverTime"].apply(
+            lambda x: 1 if str(x).strip().lower() in ["yes", "true", "1"] else 0
+        )
+    else:
+        df["OverTime"] = 0
 
     return df.reset_index(drop=True)
 
 
-# STEP 2 — WEIGHTED PRIORITY SCORE
+def safe_get_number(row: pd.Series, col: str, default: float = 0):
+    value = row.get(col, default)
+    try:
+        if pd.isna(value):
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
 def compute_priority_score(row: pd.Series) -> float:
-    """
-    Compute a numeric urgency score for each employee.
-    Higher = more urgent HR attention needed.
-    This drives the priority tier and sorting.
-    """
     score = 0.0
 
-    # Risk tier base score
-    score += {"High Risk": 60, "Medium Risk": 35, "Low Risk": 10}.get(
-        row.get("risk_category", "Low Risk"), 10
-    )
+    score += {
+        "High Risk": 60,
+        "Medium Risk": 35,
+        "Low Risk": 10
+    }.get(row.get("risk_category", "Low Risk"), 10)
 
-    # Burnout tier
-    score += {"Severe Burnout": 45, "Moderate Burnout": 25, "Low Burnout": 10}.get(
-        row.get("burnout_category", "Low Burnout"), 10
-    )
+    score += {
+        "Severe Burnout": 45,
+        "Moderate Burnout": 25,
+        "Low Burnout": 10,
+        "No Burnout": 5
+    }.get(row.get("burnout_category", "Low Burnout"), 10)
 
-    # Anomaly flag
     if row.get("anomaly_status") == "Anomalous Employee":
         score += 20
 
-    # Continuous scores
-    score += row.get("attrition_score", 0) * 0.25
-    score += row.get("burnout_score", 0)   * 0.25
+    score += safe_get_number(row, "attrition_score") * 0.25
+    score += safe_get_number(row, "burnout_score") * 0.25
 
-    # Income penalty
-    income = row.get("MonthlyIncome", 0)
+    income = safe_get_number(row, "MonthlyIncome", 5000)
+
     if income < 3000:
         score += 10
     elif income > 10000:
         score -= 5
 
-    # Tenure signals
-    tenure = row.get("YearsAtCompany", 0)
-    if tenure < 2:
-        score += 10   # new employees are flight risks
-    elif tenure > 10:
-        score += 5    # long tenured but still at risk = serious signal
+    tenure = safe_get_number(row, "YearsAtCompany", 1)
 
-    # Overtime flag
+    if tenure < 2:
+        score += 10
+    elif tenure > 10:
+        score += 5
+
     if row.get("OverTime") == 1:
         score += 8
 
-    # Promotion stagnation
-    years_no_promo = row.get("YearsSinceLastPromotion", 0)
+    years_no_promo = safe_get_number(row, "YearsSinceLastPromotion", 0)
+
     if years_no_promo >= 4:
         score += 10
     elif years_no_promo >= 2:
@@ -142,47 +170,57 @@ def priority_label(score: float) -> str:
     return "Low"
 
 
-
-# STEP 3 — CONTENT-BASED PROFILE MATRIX
 def build_profile_matrix(df: pd.DataFrame) -> np.ndarray:
-    """
-    Normalise PROFILE_FEATURES into a [0,1] matrix.
-    Each row = one employee's content vector.
-    This is what makes it a Content-Based system.
-    """
-    available = [f for f in PROFILE_FEATURES if f in df.columns]
+    available = [
+        col for col in PROFILE_FEATURES
+        if col in df.columns
+    ]
+
+    if not available:
+        available = [
+            "attrition_score",
+            "burnout_score",
+            "OverTime"
+        ]
+
     feature_df = df[available].copy()
-    feature_df = feature_df.fillna(feature_df.median(numeric_only=True))
+
+    for col in feature_df.columns:
+        feature_df[col] = pd.to_numeric(feature_df[col], errors="coerce")
+        median_value = feature_df[col].median()
+        feature_df[col] = feature_df[col].fillna(
+            median_value if pd.notna(median_value) else 0
+        )
+
+    nunique = feature_df.nunique()
+    feature_df = feature_df[nunique[nunique > 1].index]
+
+    if feature_df.empty:
+        feature_df = pd.DataFrame({
+            "attrition_score": df["attrition_score"],
+            "burnout_score": df["burnout_score"],
+        })
 
     scaler = MinMaxScaler()
     return scaler.fit_transform(feature_df)
 
 
-# STEP 4 — FIND SIMILAR HEALTHY PEERS
 def find_healthy_peers(
     profile_matrix: np.ndarray,
     df: pd.DataFrame,
     employee_idx: int,
     top_n: int = 5
 ) -> pd.DataFrame:
-    """
-    Find the top_n employees most SIMILAR to the target employee
-    but who are in a HEALTHY state (Low Risk + Low/No Burnout).
+    if len(df) <= 1:
+        return pd.DataFrame()
 
-    These are the "reference points" — employees like this one
-    who are doing well. The gap between them and the at-risk
-    employee surfaces the root causes.
-    """
     emp_vec = profile_matrix[employee_idx].reshape(1, -1)
     sim_scores = cosine_similarity(emp_vec, profile_matrix)[0]
 
     temp = df.copy()
     temp["_sim"] = sim_scores
-
-    # Exclude the employee themselves
     temp = temp[temp.index != employee_idx]
 
-    # Prefer healthy peers as reference
     healthy = temp[
         (temp["risk_category"] == "Low Risk") &
         (temp["burnout_category"].isin(["Low Burnout", "No Burnout"]))
@@ -191,354 +229,235 @@ def find_healthy_peers(
     if len(healthy) >= top_n:
         return healthy.nlargest(top_n, "_sim")
 
-    # Fallback: use all employees if not enough healthy peers found
-    return temp.nlargest(top_n, "_sim")
+    if not healthy.empty:
+        return healthy.nlargest(min(top_n, len(healthy)), "_sim")
+
+    return temp.nlargest(min(top_n, len(temp)), "_sim")
 
 
-# STEP 5 — PEER INSIGHTS & GAP WARNINGS
 def build_peer_insights(peers: pd.DataFrame) -> dict:
-    """Summarise what the healthy reference peers look like."""
     if peers.empty:
         return {}
+
+    def avg(col, default=None):
+        if col not in peers.columns:
+            return default
+        return round(pd.to_numeric(peers[col], errors="coerce").mean(), 2)
+
     return {
-        "peer_avg_income":        round(peers["MonthlyIncome"].mean(), 2),
-        "peer_avg_satisfaction":  round(peers["JobSatisfaction"].mean(), 2),
-        "peer_avg_wlb":           round(peers["WorkLifeBalance"].mean(), 2),
-        "peer_avg_training":      round(peers["TrainingTimesLastYear"].mean(), 2),
-        "peer_avg_years_promo":   round(peers["YearsSinceLastPromotion"].mean(), 2),
-        "peer_avg_attrition":     round(peers["attrition_score"].mean(), 2),
-        "peer_count":             len(peers),
+        "peer_avg_income": avg("MonthlyIncome"),
+        "peer_avg_satisfaction": avg("JobSatisfaction"),
+        "peer_avg_wlb": avg("WorkLifeBalance"),
+        "peer_avg_training": avg("TrainingTimesLastYear"),
+        "peer_avg_years_promo": avg("YearsSinceLastPromotion"),
+        "peer_avg_attrition": avg("attrition_score"),
+        "peer_count": int(len(peers)),
     }
 
 
 def generate_gap_warnings(row: pd.Series, peers: dict) -> list:
-    """
-    Compare the employee's actual stats to their healthy peers.
-    This is the core of the content-based insight:
-    'Employees similar to you, but stable, have X. You have Y.'
-    """
     if not peers:
         return []
 
     warnings = []
 
-    income_gap = peers["peer_avg_income"] - row.get("MonthlyIncome", 0)
-    if income_gap > 1500:
-        warnings.append(
-            f"Income is ${income_gap:,.0f} below similar healthy peers — "
-            "compensation gap is a likely attrition driver"
-        )
+    if peers.get("peer_avg_income") is not None:
+        income_gap = peers["peer_avg_income"] - safe_get_number(row, "MonthlyIncome", 0)
+        if income_gap > 1500:
+            warnings.append(
+                f"Income is ${income_gap:,.0f} below similar healthy peers — compensation gap may increase attrition risk"
+            )
 
-    sat_gap = peers["peer_avg_satisfaction"] - row.get("JobSatisfaction", 3)
-    if sat_gap > 0.8:
-        warnings.append(
-            f"Job satisfaction is {sat_gap:.1f} pts below healthy peers — "
-            "role engagement intervention needed"
-        )
+    if peers.get("peer_avg_satisfaction") is not None:
+        sat_gap = peers["peer_avg_satisfaction"] - safe_get_number(row, "JobSatisfaction", 3)
+        if sat_gap > 0.8:
+            warnings.append(
+                f"Job satisfaction is {sat_gap:.1f} points below healthy peers — engagement intervention is recommended"
+            )
 
-    wlb_gap = peers["peer_avg_wlb"] - row.get("WorkLifeBalance", 3)
-    if wlb_gap > 0.8:
-        warnings.append(
-            f"Work-life balance is {wlb_gap:.1f} pts below healthy peers — "
-            "schedule flexibility should be explored"
-        )
+    if peers.get("peer_avg_wlb") is not None:
+        wlb_gap = peers["peer_avg_wlb"] - safe_get_number(row, "WorkLifeBalance", 3)
+        if wlb_gap > 0.8:
+            warnings.append(
+                f"Work-life balance is {wlb_gap:.1f} points below healthy peers — schedule flexibility should be reviewed"
+            )
 
-    promo_lag = (
-        row.get("YearsSinceLastPromotion", 0) - peers["peer_avg_years_promo"]
-    )
-    if promo_lag > 2:
-        warnings.append(
-            f"{promo_lag:.0f} more years without promotion vs healthy peers — "
-            "career stagnation risk detected"
-        )
+    if peers.get("peer_avg_years_promo") is not None:
+        promo_lag = safe_get_number(row, "YearsSinceLastPromotion", 0) - peers["peer_avg_years_promo"]
+        if promo_lag > 2:
+            warnings.append(
+                f"{promo_lag:.0f} more years without promotion compared with healthy peers — career stagnation risk detected"
+            )
 
-    train_gap = peers["peer_avg_training"] - row.get("TrainingTimesLastYear", 0)
-    if train_gap > 1.5:
-        warnings.append(
-            f"Training is {train_gap:.1f} sessions/year below healthy peers — "
-            "L&D investment gap identified"
-        )
+    if peers.get("peer_avg_training") is not None:
+        train_gap = peers["peer_avg_training"] - safe_get_number(row, "TrainingTimesLastYear", 0)
+        if train_gap > 1.5:
+            warnings.append(
+                f"Training is {train_gap:.1f} sessions/year below healthy peers — learning and development gap identified"
+            )
 
     return warnings
 
 
-# STEP 6 — HR ACTION ENGINE
 def generate_hr_actions(row: pd.Series) -> list:
-    """
-    Generate specific, actionable HR recommendations.
-    Targets root causes using:
-    - Priority score tier
-    - Burnout category
-    - Anomaly flag
-    - danger_explanation column (Tala's output)
-    - Job role
-    - Quantitative signals (promotion lag, overtime, training)
-    """
     actions = []
-    score  = row.get("priority_score", 0)
+
+    score = safe_get_number(row, "priority_score", 0)
     danger = str(row.get("danger_explanation", "")).lower()
-    role   = str(row.get("JobRole", ""))
+    role = str(row.get("JobRole", ""))
 
-    # Priority tier
     if score >= 120:
-        actions.append(
-            "Schedule URGENT retention meeting within 48 hours — "
-            "deep discussion on satisfaction, workload, and career path"
-        )
-        actions.append(
-            "Assign dedicated HR case manager for personalised intervention plan"
-        )
-        actions.append(
-            "Escalate to HR leadership for immediate strategic review"
-        )
+        actions.append("Schedule urgent retention meeting within 48 hours.")
+        actions.append("Assign dedicated HR case manager for personalized intervention.")
+        actions.append("Escalate case to HR leadership for immediate review.")
     elif score >= 80:
-        actions.append(
-            "Initiate structured weekly engagement check-ins to detect "
-            "dissatisfaction signals early"
-        )
-        actions.append(
-            "Build personalised career development plan aligned with employee goals"
-        )
+        actions.append("Start weekly engagement check-ins.")
+        actions.append("Build personalized career development plan.")
     elif score >= 50:
-        actions.append(
-            "Schedule monthly one-on-one well-being review — "
-            "add to 90-day HR watchlist"
-        )
+        actions.append("Schedule monthly well-being review and add employee to 90-day HR watchlist.")
     else:
-        actions.append(
-            "Maintain standard engagement monitoring with quarterly feedback sessions"
-        )
+        actions.append("Maintain standard engagement monitoring with quarterly feedback.")
 
-    # Burnout 
     burnout = row.get("burnout_category", "")
+
     if burnout == "Severe Burnout":
-        actions.append(
-            "Implement IMMEDIATE workload reduction (up to 50%) "
-            "and enrol in mandatory wellness recovery programme"
-        )
-        actions.append(
-            "Refer employee to professional mental health support (EAP) without delay"
-        )
+        actions.append("Apply immediate workload reduction and wellness recovery plan.")
+        actions.append("Refer employee to professional support or EAP resources.")
     elif burnout == "Moderate Burnout":
-        actions.append(
-            "Introduce flexible scheduling and structured rest periods "
-            "to restore work-life balance"
-        )
-        actions.append(
-            "Provide access to stress management workshops and mindfulness resources"
-        )
+        actions.append("Introduce flexible scheduling and structured rest periods.")
+        actions.append("Provide stress management and wellness resources.")
 
-    # Anomaly
     if row.get("anomaly_status") == "Anomalous Employee":
-        actions.append(
-            "Conduct behavioural analysis — review attendance, output logs, "
-            "and cross-check peer performance data to identify root cause"
-        )
+        actions.append("Review attendance, workload, and performance logs to identify unusual patterns.")
 
-    # Root-cause targeting
     if "low job satisfaction" in danger:
-        actions.append(
-            "Conduct confidential job satisfaction survey — "
-            "explore role enrichment or lateral move opportunities"
-        )
+        actions.append("Conduct confidential satisfaction review and explore role enrichment.")
     if "poor work-life balance" in danger:
-        actions.append(
-            "Review overtime patterns — enforce WLB policy if chronically exceeded; "
-            "offer remote/hybrid option where feasible"
-        )
+        actions.append("Review overtime patterns and workload distribution.")
     if "low monthly income" in danger:
-        actions.append(
-            "Trigger compensation benchmarking review — "
-            "evaluate eligibility for next salary band promotion"
-        )
+        actions.append("Trigger compensation benchmarking review.")
     if "performance needs attention" in danger:
-        actions.append(
-            "Enrol in targeted skills development programme; "
-            "initiate Performance Improvement Plan (PIP) if below threshold"
-        )
+        actions.append("Recommend targeted skills development or performance support plan.")
 
-    # Quantitative signals
     if row.get("OverTime") == 1:
-        actions.append(
-            "Flag overtime overload — discuss workload redistribution with line manager"
-        )
+        actions.append("Flag overtime overload and discuss redistribution with line manager.")
 
-    years_no_promo = row.get("YearsSinceLastPromotion", 0)
+    years_no_promo = safe_get_number(row, "YearsSinceLastPromotion", 0)
+
     if years_no_promo >= 4:
-        actions.append(
-            f"No promotion in {int(years_no_promo)} years — "
-            "urgently review career progression roadmap and set clear milestones"
-        )
+        actions.append(f"No promotion in {int(years_no_promo)} years — urgently review career progression roadmap.")
     elif years_no_promo >= 2:
-        actions.append(
-            f"No promotion in {int(years_no_promo)} years — "
-            "discuss promotion eligibility at next review"
-        )
+        actions.append(f"No promotion in {int(years_no_promo)} years — discuss promotion eligibility.")
 
-    attrition_score = row.get("attrition_score", 0)
+    attrition_score = safe_get_number(row, "attrition_score", 0)
+
     if attrition_score > 60:
-        actions.append(
-            f"Attrition score {attrition_score:.1f} — "
-            "consider targeted retention bonus or fast-track development offer"
-        )
+        actions.append(f"Attrition score {attrition_score:.1f} — consider targeted retention incentive or development offer.")
 
-    training = row.get("TrainingTimesLastYear", 3)
+    training = safe_get_number(row, "TrainingTimesLastYear", 3)
+
     if training == 0:
-        actions.append(
-            "Zero training sessions last year — "
-            "enrol in mandatory L&D programme immediately"
-        )
+        actions.append("No training last year — enroll employee in mandatory learning plan.")
     elif training == 1:
-        actions.append(
-            "Only 1 training session last year — "
-            "increase L&D participation to at least 3 sessions/year"
-        )
+        actions.append("Only one training session last year — increase learning participation.")
 
-    # Role-specific actions
     if "Manager" in role:
-        actions.append(
-            "Enrol in executive leadership coaching to strengthen "
-            "team management and delegation skills"
-        )
+        actions.append("Offer leadership coaching and delegation support.")
     elif "Sales" in role:
-        actions.append(
-            "Review incentive structure and quota targets — "
-            "ensure commission model is motivating, not demotivating"
-        )
+        actions.append("Review incentive structure and quota pressure.")
     elif "Scientist" in role or "Research" in role:
-        actions.append(
-            "Audit research project load to reduce cognitive overload "
-            "and protect deep-work time"
-        )
+        actions.append("Review research workload and protect deep-work time.")
     elif "Technician" in role or "Laboratory" in role:
-        actions.append(
-            "Review technical role growth path — "
-            "consider specialist track or team lead opportunities"
-        )
+        actions.append("Review technical career path and growth opportunities.")
 
-    # Deduplicate while preserving order
-    seen, unique = set(), []
-    for a in actions:
-        if a not in seen:
-            seen.add(a)
-            unique.append(a)
+    unique_actions = []
+    seen = set()
 
-    return unique if unique else [
-        "No immediate action required — continue standard monitoring"
-    ]
+    for action in actions:
+        if action not in seen:
+            seen.add(action)
+            unique_actions.append(action)
 
+    return unique_actions
 
-# STEP 7 — RETENTION STRATEGY LABELS
 
 RETENTION_STRATEGIES = {
-    ("High Risk",   "Severe Burnout"):   "Emergency Retention Protocol",
-    ("High Risk",   "Moderate Burnout"): "Urgent Retention Intervention",
-    ("High Risk",   "Low Burnout"):      "Proactive Retention Plan",
-    ("Medium Risk", "Severe Burnout"):   "Burnout Recovery & Stabilisation",
+    ("High Risk", "Severe Burnout"): "Emergency Retention Protocol",
+    ("High Risk", "Moderate Burnout"): "Urgent Retention Intervention",
+    ("High Risk", "Low Burnout"): "Proactive Retention Plan",
+    ("Medium Risk", "Severe Burnout"): "Burnout Recovery & Stabilisation",
     ("Medium Risk", "Moderate Burnout"): "Engagement & Recovery Programme",
-    ("Medium Risk", "Low Burnout"):      "Career Development Focus",
-    ("Low Risk",    "Severe Burnout"):   "Workload Relief Initiative",
-    ("Low Risk",    "Moderate Burnout"): "Preventive Well-being Programme",
-    ("Low Risk",    "Low Burnout"):      "Standard Engagement Maintenance",
+    ("Medium Risk", "Low Burnout"): "Career Development Focus",
+    ("Low Risk", "Severe Burnout"): "Workload Relief Initiative",
+    ("Low Risk", "Moderate Burnout"): "Preventive Well-being Programme",
+    ("Low Risk", "Low Burnout"): "Standard Engagement Maintenance",
 }
+
 
 def get_retention_strategy(risk: str, burnout: str) -> str:
     return RETENTION_STRATEGIES.get(
-        (risk, burnout), "General HR Monitoring"
+        (risk, burnout),
+        "General HR Monitoring"
     )
 
 
-# STEP 8 — MAIN PIPELINE
-
-
 def generate_recommendations(df: pd.DataFrame = None) -> pd.DataFrame:
-    """
-    Full content-based HR recommendation pipeline.
-
-    Steps:
-      1. Load and validate dataset
-      2. Compute weighted priority score per employee
-      3. Build normalised content profile matrix
-      4. For each employee → find similar healthy peers
-      5. Compute peer-gap warnings (content-based insight)
-      6. Generate targeted HR actions
-      7. Assign retention strategy label
-      8. Sort by priority score descending
-      9. Return structured DataFrame
-
-    Parameters
-    ----------
-    df : pd.DataFrame, optional
-        Pass directly from Streamlit/API.
-        If None, loads from BASE_PATH.
-
-    Returns
-    -------
-    pd.DataFrame — one recommendation record per employee,
-    sorted by urgency (most critical first).
-    """
-
     df = load_data(df)
 
-    # ── Priority scores ────────────────────────────────────
     df["priority_score"] = df.apply(compute_priority_score, axis=1)
-    df["priority"]       = df["priority_score"].apply(priority_label)
+    df["priority"] = df["priority_score"].apply(priority_label)
 
-    # ── Content-based profile matrix ───────────────────────
     profile_matrix = build_profile_matrix(df)
 
     records = []
 
     for idx, row in df.iterrows():
-
-        # Find similar healthy peers
-        peers        = find_healthy_peers(profile_matrix, df, idx, top_n=5)
-        peer_info    = build_peer_insights(peers)
+        peers = find_healthy_peers(profile_matrix, df, idx, top_n=5)
+        peer_info = build_peer_insights(peers)
         gap_warnings = generate_gap_warnings(row, peer_info)
-
-        # HR actions (uses priority_score already in row) 
         hr_actions = generate_hr_actions(row)
 
-        # Retention strategy
         strategy = get_retention_strategy(
             row.get("risk_category", "Low Risk"),
             row.get("burnout_category", "Low Burnout")
         )
 
         record = {
-            "EmployeeNumber":    row.get("EmployeeNumber", idx),
-            "Age":               row.get("Age"),
-            "JobRole":           row.get("JobRole"),
-            "Department":        row.get("Department"),
-            "MonthlyIncome":     row.get("MonthlyIncome"),
-
-            "risk_category":     row.get("risk_category"),
-            "burnout_category":  row.get("burnout_category"),
-            "anomaly_status":    row.get("anomaly_status"),
-            "attrition_score":   round(row.get("attrition_score", 0), 2),
-            "burnout_score":     round(row.get("burnout_score", 0), 2),
-
-            "priority_score":    row.get("priority_score"),
-            "priority":          row.get("priority"),
-            "retention_strategy":strategy,
-
-            "hr_actions":        hr_actions,
-            "action_count":      len(hr_actions),
-
+            "EmployeeNumber": row.get("EmployeeNumber", idx),
+            "Age": row.get("Age"),
+            "JobRole": row.get("JobRole"),
+            "Department": row.get("Department"),
+            "MonthlyIncome": row.get("MonthlyIncome"),
+            "risk_category": row.get("risk_category"),
+            "burnout_category": row.get("burnout_category"),
+            "anomaly_status": row.get("anomaly_status"),
+            "attrition_score": round(safe_get_number(row, "attrition_score"), 2),
+            "burnout_score": round(safe_get_number(row, "burnout_score"), 2),
+            "priority_score": row.get("priority_score"),
+            "priority": row.get("priority"),
+            "retention_strategy": strategy,
+            "hr_actions": hr_actions,
+            "action_count": len(hr_actions),
             "peer_gap_warnings": gap_warnings,
-            "gap_count":         len(gap_warnings),
-            "peer_avg_income":   peer_info.get("peer_avg_income"),
+            "gap_count": len(gap_warnings),
+            "peer_avg_income": peer_info.get("peer_avg_income"),
             "peer_avg_satisfaction": peer_info.get("peer_avg_satisfaction"),
-            "peer_avg_wlb":      peer_info.get("peer_avg_wlb"),
+            "peer_avg_wlb": peer_info.get("peer_avg_wlb"),
         }
 
         records.append(record)
 
     result = pd.DataFrame(records)
 
-    # Sort: Critical first, then by attrition score
-    priority_order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
+    priority_order = {
+        "Critical": 0,
+        "High": 1,
+        "Medium": 2,
+        "Low": 3
+    }
+
     result["_rank"] = result["priority"].map(priority_order)
+
     result = (
         result
         .sort_values(["_rank", "attrition_score"], ascending=[True, False])
@@ -546,70 +465,55 @@ def generate_recommendations(df: pd.DataFrame = None) -> pd.DataFrame:
         .reset_index(drop=True)
     )
 
-    # Return only defined output columns that exist
-    final_cols = [c for c in OUTPUT_COLS if c in result.columns]
+    final_cols = [
+        col for col in OUTPUT_COLS
+        if col in result.columns
+    ]
+
     return result[final_cols]
 
 
+def save_recommendations(df: pd.DataFrame, output_path: str = OUTPUT_PATH) -> str:
+    os.makedirs(PROCESSED_DIR, exist_ok=True)
 
-# STEP 9 — SUMMARY REPORT (for dashboard)
+    save_df = df.copy()
+
+    if "hr_actions" in save_df.columns:
+        save_df["hr_actions"] = save_df["hr_actions"].apply(
+            lambda x: " | ".join(x) if isinstance(x, list) else x
+        )
+
+    if "peer_gap_warnings" in save_df.columns:
+        save_df["peer_gap_warnings"] = save_df["peer_gap_warnings"].apply(
+            lambda x: " | ".join(x) if isinstance(x, list) else x
+        )
+
+    save_df.to_csv(output_path, index=False)
+    return output_path
+
 
 def generate_summary_report(recs: pd.DataFrame) -> dict:
-    """Aggregate stats for the Streamlit dashboard."""
     return {
-        "total_employees":           len(recs),
-        "critical_count":            int((recs["priority"] == "Critical").sum()),
-        "high_count":                int((recs["priority"] == "High").sum()),
-        "medium_count":              int((recs["priority"] == "Medium").sum()),
-        "low_count":                 int((recs["priority"] == "Low").sum()),
-        "anomalous_employees":       int((recs["anomaly_status"] == "Anomalous Employee").sum()),
-        "avg_priority_score":        round(recs["priority_score"].mean(), 2),
-        "avg_attrition_score":       round(recs["attrition_score"].mean(), 2),
-        "avg_burnout_score":         round(recs["burnout_score"].mean(), 2),
-        "employees_with_peer_gaps":  int((recs["gap_count"] > 0).sum()),
-        "avg_actions_per_employee":  round(recs["action_count"].mean(), 2),
-        "top_retention_strategy":    recs["retention_strategy"].value_counts().idxmax(),
-        "risk_distribution":         recs["risk_category"].value_counts().to_dict(),
-        "burnout_distribution":      recs["burnout_category"].value_counts().to_dict(),
-        "priority_distribution":     recs["priority"].value_counts().to_dict(),
+        "total_employees": int(len(recs)),
+        "critical_count": int((recs["priority"] == "Critical").sum()) if "priority" in recs.columns else 0,
+        "high_count": int((recs["priority"] == "High").sum()) if "priority" in recs.columns else 0,
+        "medium_count": int((recs["priority"] == "Medium").sum()) if "priority" in recs.columns else 0,
+        "low_count": int((recs["priority"] == "Low").sum()) if "priority" in recs.columns else 0,
+        "anomalous_employees": int((recs["anomaly_status"] == "Anomalous Employee").sum()) if "anomaly_status" in recs.columns else 0,
+        "avg_priority_score": round(recs["priority_score"].mean(), 2) if "priority_score" in recs.columns else 0,
+        "avg_attrition_score": round(recs["attrition_score"].mean(), 2) if "attrition_score" in recs.columns else 0,
+        "avg_burnout_score": round(recs["burnout_score"].mean(), 2) if "burnout_score" in recs.columns else 0,
+        "employees_with_peer_gaps": int((recs["gap_count"] > 0).sum()) if "gap_count" in recs.columns else 0,
+        "avg_actions_per_employee": round(recs["action_count"].mean(), 2) if "action_count" in recs.columns else 0,
+        "top_retention_strategy": recs["retention_strategy"].value_counts().idxmax() if "retention_strategy" in recs.columns and not recs.empty else None,
+        "risk_distribution": recs["risk_category"].value_counts().to_dict() if "risk_category" in recs.columns else {},
+        "burnout_distribution": recs["burnout_category"].value_counts().to_dict() if "burnout_category" in recs.columns else {},
+        "priority_distribution": recs["priority"].value_counts().to_dict() if "priority" in recs.columns else {},
     }
 
 
-# QUICK TEST
-
 if __name__ == "__main__":
-    print("=" * 55)
-    print("  TalentGuard — HR Recommendation Engine Test")
-    print("=" * 55)
-
-    try:
-        recs = generate_recommendations()
-        print(f"\n Recommendations generated for {len(recs)} employees\n")
-
-        # Show top Critical employee
-        critical = recs[recs["priority"] == "Critical"]
-        if not critical.empty:
-            s = critical.iloc[0]
-            print("── Top Critical Employee ──────────────────────────")
-            print(f"  ID:               {s['EmployeeNumber']}")
-            print(f"  Role:             {s.get('JobRole', 'N/A')}")
-            print(f"  Risk:             {s['risk_category']}")
-            print(f"  Burnout:          {s['burnout_category']}")
-            print(f"  Priority Score:   {s['priority_score']}")
-            print(f"  Attrition Score:  {s['attrition_score']}")
-            print(f"  Strategy:         {s['retention_strategy']}")
-            print(f"\n  HR Actions ({s['action_count']}):")
-            for a in s["hr_actions"]:
-                print(f"    → {a}")
-            print(f"\n  Peer Gap Warnings ({s['gap_count']}):")
-            for w in s["peer_gap_warnings"]:
-                print(f"     {w}")
-
-        print("\n── Summary Report ─────────────────────────────────")
-        summary = generate_summary_report(recs)
-        for k, v in summary.items():
-            print(f"  {k}: {v}")
-
-    except FileNotFoundError as e:
-        print(f"\n  {e}")
-        print("   Run after Toqa & Tala's pipeline generates V6.")
+    recs = generate_recommendations()
+    path = save_recommendations(recs)
+    print(f"Recommendations saved to: {path}")
+    print(generate_summary_report(recs))
