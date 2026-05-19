@@ -1,4 +1,4 @@
-# HR Talent Mining & Recruitment Intelligence Platform
+# WorkPulse Platform
 
 A comprehensive Python-based Data Mining platform for HR analytics, recruitment intelligence, workforce segmentation, and team-ready dataset sharing.
 
